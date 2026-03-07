@@ -12,14 +12,30 @@ export interface FigmaDesignData {
 }
 
 export function parseFigmaUrl(url: string): ParsedFigmaUrl {
-  const u = new URL(url);
-  // Supports: /file/KEY/... and /design/KEY/...
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new Error(
+      "Invalid URL format. Please provide a valid Figma URL."
+    );
+  }
+
+  if (u.hostname !== "www.figma.com" && u.hostname !== "figma.com") {
+    throw new Error(
+      "URL must be from figma.com (e.g. https://www.figma.com/design/...)"
+    );
+  }
+
   const match = u.pathname.match(/\/(file|design)\/([a-zA-Z0-9]+)/);
-  if (!match) throw new Error("Invalid Figma URL");
+  if (!match) {
+    throw new Error(
+      "Could not find a file key in the URL. Use a link like https://www.figma.com/design/FILEKEY/..."
+    );
+  }
 
   const fileKey = match[2];
   const rawNodeId = u.searchParams.get("node-id");
-  // Figma URLs use X-Y format, API uses X:Y
   const nodeId = rawNodeId ? rawNodeId.replace("-", ":") : undefined;
 
   return { fileKey, nodeId };
@@ -32,8 +48,16 @@ interface FigmaNode {
   children?: FigmaNode[];
   characters?: string;
   style?: Record<string, unknown>;
-  absoluteBoundingBox?: { x: number; y: number; width: number; height: number };
-  fills?: Array<{ type: string; color?: { r: number; g: number; b: number; a: number } }>;
+  absoluteBoundingBox?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  fills?: Array<{
+    type: string;
+    color?: { r: number; g: number; b: number; a: number };
+  }>;
   cornerRadius?: number;
   paddingLeft?: number;
   paddingRight?: number;
@@ -43,8 +67,15 @@ interface FigmaNode {
   layoutMode?: string;
   primaryAxisAlignItems?: string;
   counterAxisAlignItems?: string;
-  effects?: Array<{ type: string; radius?: number; color?: { r: number; g: number; b: number; a: number } }>;
-  strokes?: Array<{ type: string; color?: { r: number; g: number; b: number; a: number } }>;
+  effects?: Array<{
+    type: string;
+    radius?: number;
+    color?: { r: number; g: number; b: number; a: number };
+  }>;
+  strokes?: Array<{
+    type: string;
+    color?: { r: number; g: number; b: number; a: number };
+  }>;
   strokeWeight?: number;
 }
 
@@ -57,7 +88,7 @@ function rgbaToHex(c: { r: number; g: number; b: number; a: number }): string {
 }
 
 function simplifyNode(node: FigmaNode, depth = 0): string {
-  if (depth > 8) return ""; // prevent excessive nesting
+  if (depth > 8) return "";
 
   const indent = "  ".repeat(depth);
   const parts: string[] = [];
@@ -72,8 +103,10 @@ function simplifyNode(node: FigmaNode, depth = 0): string {
   if (node.layoutMode) {
     line += ` layout=${node.layoutMode}`;
     if (node.itemSpacing) line += ` gap=${node.itemSpacing}`;
-    if (node.primaryAxisAlignItems) line += ` mainAxis=${node.primaryAxisAlignItems}`;
-    if (node.counterAxisAlignItems) line += ` crossAxis=${node.counterAxisAlignItems}`;
+    if (node.primaryAxisAlignItems)
+      line += ` mainAxis=${node.primaryAxisAlignItems}`;
+    if (node.counterAxisAlignItems)
+      line += ` crossAxis=${node.counterAxisAlignItems}`;
   }
 
   if (node.cornerRadius) line += ` radius=${node.cornerRadius}`;
@@ -90,7 +123,9 @@ function simplifyNode(node: FigmaNode, depth = 0): string {
   }
 
   if (node.strokes?.length) {
-    const solidStrokes = node.strokes.filter((f) => f.type === "SOLID" && f.color);
+    const solidStrokes = node.strokes.filter(
+      (f) => f.type === "SOLID" && f.color
+    );
     if (solidStrokes.length) {
       line += ` stroke=${solidStrokes.map((f) => rgbaToHex(f.color!)).join(",")}`;
       if (node.strokeWeight) line += ` strokeWidth=${node.strokeWeight}`;
@@ -152,6 +187,29 @@ function extractFonts(node: FigmaNode, fonts: Set<string>) {
   }
 }
 
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs = 15000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return res;
+  } catch (err) {
+    if ((err as Error).name === "AbortError") {
+      throw new Error(`Request to Figma API timed out after ${timeoutMs / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchFigmaDesign(
   fileKey: string,
   nodeId: string | undefined,
@@ -159,37 +217,64 @@ export async function fetchFigmaDesign(
 ): Promise<FigmaDesignData> {
   const headers = { "X-FIGMA-TOKEN": token };
 
-  // Fetch file or specific node
   let targetNode: FigmaNode;
   let fileName: string;
 
   if (nodeId) {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.figma.com/v1/files/${fileKey}/nodes?ids=${encodeURIComponent(nodeId)}`,
       { headers }
     );
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Figma API error (${res.status}): ${text}`);
+      const text = await res.text().catch(() => "");
+      if (res.status === 403) {
+        throw new Error(
+          `Access denied (403). Check that your Figma token has access to this file.`
+        );
+      }
+      if (res.status === 404) {
+        throw new Error(
+          `File not found (404). The file may have been deleted or the URL is incorrect.`
+        );
+      }
+      throw new Error(
+        `Figma API error (${res.status}): ${text || res.statusText}`
+      );
     }
     const data = await res.json();
     fileName = data.name || "Untitled";
     const nodeData = data.nodes?.[nodeId];
-    if (!nodeData?.document) throw new Error(`Node ${nodeId} not found`);
+    if (!nodeData?.document) {
+      throw new Error(
+        `Node "${nodeId}" not found in this file. The selected layer may have been removed.`
+      );
+    }
     targetNode = nodeData.document;
   } else {
-    const res = await fetch(`https://api.figma.com/v1/files/${fileKey}?depth=4`, {
-      headers,
-    });
+    const res = await fetchWithTimeout(
+      `https://api.figma.com/v1/files/${fileKey}?depth=4`,
+      { headers }
+    );
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Figma API error (${res.status}): ${text}`);
+      const text = await res.text().catch(() => "");
+      if (res.status === 403) {
+        throw new Error(
+          `Access denied (403). Check that your Figma token has access to this file.`
+        );
+      }
+      if (res.status === 404) {
+        throw new Error(
+          `File not found (404). The file may have been deleted or the URL is incorrect.`
+        );
+      }
+      throw new Error(
+        `Figma API error (${res.status}): ${text || res.statusText}`
+      );
     }
     const data = await res.json();
     fileName = data.name || "Untitled";
-    // Use first page's children
     const firstPage = data.document?.children?.[0];
-    if (!firstPage) throw new Error("Empty Figma file");
+    if (!firstPage) throw new Error("The Figma file appears to be empty.");
     targetNode = firstPage;
   }
 
@@ -201,13 +286,13 @@ export async function fetchFigmaDesign(
   const fonts = new Set<string>();
   extractFonts(targetNode, fonts);
 
-  // Try to get an image of the target node
   let imageUrl: string | undefined;
   const imageNodeId = nodeId || targetNode.id;
   try {
-    const imgRes = await fetch(
+    const imgRes = await fetchWithTimeout(
       `https://api.figma.com/v1/images/${fileKey}?ids=${encodeURIComponent(imageNodeId)}&format=png&scale=2`,
-      { headers }
+      { headers },
+      10000
     );
     if (imgRes.ok) {
       const imgData = await imgRes.json();
