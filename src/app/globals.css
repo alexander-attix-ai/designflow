@@ -2,45 +2,51 @@
 
 @theme inline {
   --color-background: #ffffff;
-  --color-foreground: #0f172a;
-  --color-muted: #f1f5f9;
-  --color-muted-foreground: #64748b;
-  --color-border: #e2e8f0;
+  --color-foreground: #111827;
+  --color-muted: #f9fafb;
+  --color-muted-foreground: #6b7280;
+  --color-border: #e5e7eb;
   --color-input: #ffffff;
-  --color-primary: #4f46e5;
+  --color-primary: #111827;
   --color-primary-foreground: #ffffff;
-  --color-card: #f8fafc;
-  --color-card-foreground: #0f172a;
   --color-accent: #6366f1;
-  --color-danger: #ef4444;
-  --color-danger-light: #fef2f2;
-  --color-danger-border: #fecaca;
-  --color-success: #22c55e;
+  --color-danger: #dc2626;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+* {
+  border-color: var(--color-border);
+}
+
 body {
-  background: var(--color-background);
+  background: #ffffff;
   color: var(--color-foreground);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 pre {
-  font-family: var(--font-mono), 'JetBrains Mono', monospace;
+  font-family: var(--font-mono), 'SF Mono', 'Fira Code', monospace;
+}
+
+::selection {
+  background: #6366f1;
+  color: white;
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
+  background: #d1d5db;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #9ca3af;
 }

@@ -7,26 +7,23 @@ import {
   SandpackLayout,
 } from "@codesandbox/sandpack-react";
 
-const STORAGE_KEY_FIGMA = "df_figma_token";
-const STORAGE_KEY_ANTHROPIC = "df_anthropic_key";
+const SK_FIGMA = "df_figma_token";
+const SK_ANTHROPIC = "df_anthropic_key";
 
-function getStored(key: string): string {
-  if (typeof window === "undefined") return "";
+function stored(key: string): string {
   try {
-    return localStorage.getItem(key) ?? "";
+    return typeof window !== "undefined"
+      ? localStorage.getItem(key) ?? ""
+      : "";
   } catch {
     return "";
   }
 }
 
-function setStored(key: string, value: string) {
-  if (typeof window === "undefined") return;
+function setStored(key: string, v: string) {
   try {
-    if (value) localStorage.setItem(key, value);
-    else localStorage.removeItem(key);
-  } catch {
-    // localStorage may be unavailable (private browsing, quota exceeded)
-  }
+    v ? localStorage.setItem(key, v) : localStorage.removeItem(key);
+  } catch {}
 }
 
 function stripFences(code: string): string {
@@ -37,94 +34,74 @@ function stripFences(code: string): string {
   return c;
 }
 
-function isValidFigmaUrl(url: string): boolean {
+function validFigmaUrl(url: string): boolean {
   try {
     const u = new URL(url);
     return (
-      u.hostname === "www.figma.com" || u.hostname === "figma.com"
-    ) && /\/(file|design)\/[a-zA-Z0-9]+/.test(u.pathname);
+      (u.hostname === "www.figma.com" || u.hostname === "figma.com") &&
+      /\/(file|design)\/[a-zA-Z0-9]+/.test(u.pathname)
+    );
   } catch {
     return false;
   }
 }
 
-function sandpackFiles(componentCode: string) {
+function spFiles(code: string) {
   return {
-    "/App.tsx": `import Component from "./Component";\nexport default function App() {\n  return <Component />;\n}`,
+    "/App.tsx": `import Component from "./Component";\nexport default function App() { return <Component />; }`,
     "/Component.tsx":
-      componentCode ||
-      `export default function Component() {\n  return <div className="p-8 text-gray-400">Generate a component to see the preview</div>;\n}`,
-    "/public/index.html": `<!DOCTYPE html>
-<html><head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<script src="https://cdn.tailwindcss.com"></script>
-</head><body><div id="root"></div></body></html>`,
+      code ||
+      'export default function Component() { return <div className="p-8 text-gray-400">No preview yet</div>; }',
+    "/public/index.html": `<!DOCTYPE html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="https://cdn.tailwindcss.com"></script></head><body><div id="root"></div></body></html>`,
   };
 }
 
 export default function Home() {
   const [figmaUrl, setFigmaUrl] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [figmaToken, setFigmaToken] = useState(() =>
-    getStored(STORAGE_KEY_FIGMA)
-  );
-  const [anthropicKey, setAnthropicKey] = useState(() =>
-    getStored(STORAGE_KEY_ANTHROPIC)
-  );
+  const [figmaToken, setFigmaToken] = useState(() => stored(SK_FIGMA));
+  const [anthropicKey, setAnthropicKey] = useState(() => stored(SK_ANTHROPIC));
   const [showSettings, setShowSettings] = useState(false);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [previewCode, setPreviewCode] = useState("");
+  const [preview, setPreview] = useState("");
   const [copied, setCopied] = useState(false);
-  const [settingsSaved, setSettingsSaved] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const codeRef = useRef<HTMLPreElement>(null);
 
+  // No auto-open settings — hidden by default
   useEffect(() => {
-    if (!getStored(STORAGE_KEY_FIGMA) && !getStored(STORAGE_KEY_ANTHROPIC)) {
-      setShowSettings(true);
-    }
+    // Check if keys exist but don't auto-open
   }, []);
 
   const saveSettings = () => {
-    setStored(STORAGE_KEY_FIGMA, figmaToken);
-    setStored(STORAGE_KEY_ANTHROPIC, anthropicKey);
-    setSettingsSaved(true);
-    setTimeout(() => setSettingsSaved(false), 2000);
+    setStored(SK_FIGMA, figmaToken);
+    setStored(SK_ANTHROPIC, anthropicKey);
     setShowSettings(false);
   };
 
   const generate = useCallback(async () => {
     const url = figmaUrl.trim();
     if (!url) return;
-
-    if (!isValidFigmaUrl(url)) {
-      setError(
-        "Please enter a valid Figma URL (e.g. https://www.figma.com/design/...)"
-      );
+    if (!validFigmaUrl(url)) {
+      setError("Enter a valid Figma URL (https://www.figma.com/design/...)");
       return;
     }
-
-    const token = figmaToken || undefined;
-    const apiKey = anthropicKey || undefined;
-
-    if (!token && !process.env.NEXT_PUBLIC_HAS_FIGMA_TOKEN) {
-      setError("Figma access token is required. Add it in Settings.");
+    if (!figmaToken && !anthropicKey) {
+      setError("Add your API keys in Settings first.");
       setShowSettings(true);
       return;
     }
 
     if (abortRef.current) abortRef.current.abort();
-
-    const controller = new AbortController();
-    abortRef.current = controller;
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
 
     setLoading(true);
     setError("");
     setCode("");
-    setPreviewCode("");
+    setPreview("");
 
     try {
       const res = await fetch("/api/generate", {
@@ -133,358 +110,234 @@ export default function Home() {
         body: JSON.stringify({
           figmaUrl: url,
           prompt: prompt.trim() || undefined,
-          figmaToken: token,
-          anthropicKey: apiKey,
+          figmaToken: figmaToken || undefined,
+          anthropicKey: anthropicKey || undefined,
         }),
-        signal: controller.signal,
+        signal: ctrl.signal,
       });
 
       if (!res.ok) {
-        const errBody = await res
-          .json()
-          .catch(() => ({ error: res.statusText }));
-        throw new Error(errBody.error || `Request failed (${res.status})`);
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(body.error || `Request failed (${res.status})`);
       }
 
       const reader = res.body?.getReader();
-      if (!reader) throw new Error("No response stream received");
+      if (!reader) throw new Error("No response stream");
 
-      const decoder = new TextDecoder();
-      let accumulated = "";
-
+      const dec = new TextDecoder();
+      let acc = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        accumulated += decoder.decode(value, { stream: true });
-        setCode(accumulated);
-        if (codeRef.current) {
+        acc += dec.decode(value, { stream: true });
+        setCode(acc);
+        if (codeRef.current)
           codeRef.current.scrollTop = codeRef.current.scrollHeight;
-        }
       }
 
-      if (!accumulated.trim()) {
-        throw new Error("Empty response from API — the model returned no code");
-      }
-
-      const cleaned = stripFences(accumulated);
+      if (!acc.trim()) throw new Error("Empty response from API");
+      const cleaned = stripFences(acc);
       setCode(cleaned);
-      setPreviewCode(cleaned);
+      setPreview(cleaned);
     } catch (err) {
       if ((err as Error).name === "AbortError") return;
-      setError((err as Error).message || "An unexpected error occurred");
+      setError((err as Error).message || "Something went wrong");
     } finally {
       setLoading(false);
       abortRef.current = null;
     }
   }, [figmaUrl, prompt, figmaToken, anthropicKey]);
 
-  const cancelGeneration = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-      setLoading(false);
-    }
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
   }, []);
 
-  const copyCode = async () => {
+  const copy = async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError("Failed to copy — please select and copy manually");
-    }
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
   };
 
-  const downloadCode = () => {
+  const download = () => {
     const blob = new Blob([code], { type: "text/typescript" });
-    const url = URL.createObjectURL(blob);
+    const u = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
+    a.href = u;
     a.download = "Component.tsx";
     a.click();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(u);
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      {/* Header */}
-      <header className="border-b border-border px-6 py-3 flex items-center justify-between shrink-0 bg-white">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-sm">
-            <svg
-              viewBox="0 0 24 24"
-              className="w-5 h-5 text-primary-foreground"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
-          <h1 className="text-lg font-bold tracking-tight text-foreground">
-            DesignFlow
-          </h1>
-          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium">
-            MVP
-          </span>
+    <div className="h-screen flex flex-col bg-white">
+      {/* ── Header ── */}
+      <header className="h-12 flex items-center justify-between px-5 border-b shrink-0">
+        <div className="flex items-center gap-2.5">
+          <svg viewBox="0 0 24 24" className="w-5 h-5 text-foreground" fill="none" stroke="currentColor" strokeWidth="2.2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+          <span className="text-sm font-semibold tracking-tight">DesignFlow</span>
         </div>
         <button
           onClick={() => setShowSettings(!showSettings)}
-          className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-muted"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          <svg
-            viewBox="0 0 24 24"
-            className="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-          </svg>
           Settings
         </button>
       </header>
 
-      {/* Settings Panel */}
+      {/* ── Settings (hidden by default) ── */}
       {showSettings && (
-        <div className="border-b border-border bg-card px-6 py-5">
-          <div className="max-w-2xl mx-auto space-y-4">
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-              API Keys
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">
-                  Figma Personal Access Token
-                </label>
-                <input
-                  type="password"
-                  value={figmaToken}
-                  onChange={(e) => setFigmaToken(e.target.value)}
-                  placeholder="figd_..."
-                  className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-colors"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">
-                  Anthropic API Key
-                </label>
-                <input
-                  type="password"
-                  value={anthropicKey}
-                  onChange={(e) => setAnthropicKey(e.target.value)}
-                  placeholder="sk-ant-..."
-                  className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-colors"
-                />
-              </div>
+        <div className="border-b bg-muted/40 px-5 py-4">
+          <div className="max-w-xl mx-auto space-y-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">API Keys</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                type="password"
+                value={figmaToken}
+                onChange={(e) => setFigmaToken(e.target.value)}
+                placeholder="Figma token — figd_..."
+                className="h-9 rounded-md border bg-white px-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-foreground/10"
+              />
+              <input
+                type="password"
+                value={anthropicKey}
+                onChange={(e) => setAnthropicKey(e.target.value)}
+                placeholder="Anthropic key — sk-ant-..."
+                className="h-9 rounded-md border bg-white px-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-foreground/10"
+              />
             </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={saveSettings}
-                className="text-sm bg-primary text-primary-foreground px-5 py-2 rounded-lg hover:bg-primary/90 transition-colors font-medium shadow-sm"
+                className="h-8 px-4 text-xs font-medium bg-foreground text-white rounded-md hover:bg-foreground/90 transition-colors"
               >
-                {settingsSaved ? "Saved!" : "Save"}
+                Save
               </button>
-              <span className="text-xs text-muted-foreground">
-                Stored locally in your browser
-              </span>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="h-8 px-3 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <span className="text-[11px] text-muted-foreground">Keys are stored in your browser only.</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Input Bar */}
-        <div className="px-6 py-4 border-b border-border space-y-3 shrink-0 bg-white">
-          <div className="flex gap-3">
-            <input
-              value={figmaUrl}
-              onChange={(e) => {
-                setFigmaUrl(e.target.value);
-                if (error) setError("");
-              }}
-              placeholder="Paste Figma URL — https://www.figma.com/design/..."
-              className="flex-1 bg-muted/50 border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary placeholder:text-muted-foreground transition-colors"
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && generate()}
-            />
-            {loading ? (
-              <button
-                onClick={cancelGeneration}
-                className="bg-foreground/10 text-foreground px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-foreground/15 transition-colors flex items-center gap-2 shrink-0"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="w-4 h-4"
-                  fill="currentColor"
-                >
-                  <rect x="6" y="6" width="12" height="12" rx="1" />
-                </svg>
-                Stop
-              </button>
-            ) : (
-              <button
-                onClick={generate}
-                disabled={!figmaUrl.trim()}
-                className="bg-primary text-primary-foreground px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 shrink-0 shadow-sm"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                </svg>
-                Generate
-              </button>
+      {/* ── Input ── */}
+      <div className="px-5 py-3 border-b shrink-0 space-y-2">
+        <div className="flex gap-2">
+          <input
+            value={figmaUrl}
+            onChange={(e) => {
+              setFigmaUrl(e.target.value);
+              if (error) setError("");
+            }}
+            placeholder="Paste a Figma URL..."
+            className="flex-1 h-9 rounded-md border bg-white px-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-foreground/10"
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && generate()}
+          />
+          {loading ? (
+            <button
+              onClick={cancel}
+              className="h-9 px-4 text-xs font-medium rounded-md border text-foreground hover:bg-gray-50 transition-colors shrink-0"
+            >
+              Cancel
+            </button>
+          ) : (
+            <button
+              onClick={generate}
+              disabled={!figmaUrl.trim()}
+              className="h-9 px-5 text-xs font-medium bg-foreground text-white rounded-md hover:bg-foreground/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+            >
+              Generate
+            </button>
+          )}
+        </div>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Additional instructions (optional)..."
+          rows={1}
+          className="w-full rounded-md border bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-foreground/10 resize-none"
+        />
+      </div>
+
+      {/* ── Error ── */}
+      {error && (
+        <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+          <span>{error}</span>
+          <button onClick={() => setError("")} className="text-red-400 hover:text-red-600 shrink-0">
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* ── Panels ── */}
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0">
+        {/* Code */}
+        <div className="flex-1 flex flex-col min-w-0 border-r">
+          <div className="h-9 flex items-center justify-between px-4 border-b shrink-0">
+            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-widest">Code</span>
+            {code && (
+              <div className="flex gap-1">
+                <button onClick={copy} className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded transition-colors">
+                  {copied ? "Copied" : "Copy"}
+                </button>
+                <button onClick={download} className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded transition-colors">
+                  Download
+                </button>
+              </div>
             )}
           </div>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder='Additional instructions (optional) — e.g., "Make it responsive, use a card layout"'
-            rows={2}
-            className="w-full bg-muted/50 border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary placeholder:text-muted-foreground resize-none transition-colors"
-          />
+          <pre ref={codeRef} className="flex-1 overflow-auto p-4 text-[13px] leading-relaxed font-mono text-gray-700 bg-white">
+            {code || (
+              <span className="text-gray-400">
+                {loading ? "Fetching design data..." : "Paste a Figma URL and click Generate"}
+              </span>
+            )}
+          </pre>
         </div>
 
-        {/* Error */}
-        {error && (
-          <div className="mx-6 mt-3 p-3 bg-danger-light border border-danger-border rounded-lg text-danger text-sm flex items-start justify-between gap-3">
-            <div className="flex items-start gap-2">
-              <svg
-                viewBox="0 0 24 24"
-                className="w-4 h-4 mt-0.5 shrink-0"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <span>{error}</span>
-            </div>
-            <button
-              onClick={() => setError("")}
-              className="text-danger/60 hover:text-danger shrink-0"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
+        {/* Preview */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="h-9 flex items-center px-4 border-b shrink-0">
+            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-widest">Preview</span>
           </div>
-        )}
-
-        {/* Output Area */}
-        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-          {/* Code Panel */}
-          <div className="flex-1 flex flex-col border-r border-border min-w-0 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted/30 shrink-0">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Generated Code
-              </span>
-              {code && (
-                <div className="flex gap-1">
-                  <button
-                    onClick={copyCode}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1 rounded-md hover:bg-muted font-medium"
-                  >
-                    {copied ? "Copied!" : "Copy"}
-                  </button>
-                  <button
-                    onClick={downloadCode}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1 rounded-md hover:bg-muted font-medium"
-                  >
-                    Download
-                  </button>
-                </div>
-              )}
-            </div>
-            <pre
-              ref={codeRef}
-              className="flex-1 overflow-auto p-4 text-sm leading-relaxed font-mono text-foreground/80 bg-white"
-            >
-              {code || (
-                <span className="text-muted-foreground">
-                  {loading
-                    ? "Waiting for Figma data..."
-                    : "Paste a Figma URL and click Generate"}
-                </span>
-              )}
-            </pre>
-          </div>
-
-          {/* Preview Panel */}
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            <div className="flex items-center px-4 py-2 border-b border-border bg-muted/30 shrink-0">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Live Preview
-              </span>
-            </div>
-            <div className="flex-1 overflow-hidden bg-white">
-              {previewCode ? (
-                <SandpackProvider
-                  template="react-ts"
-                  files={sandpackFiles(previewCode)}
-                  theme="light"
-                  options={{
-                    externalResources: ["https://cdn.tailwindcss.com"],
-                  }}
-                >
-                  <SandpackLayout style={{ height: "100%", border: "none" }}>
-                    <SandpackPreview
-                      style={{ height: "100%" }}
-                      showOpenInCodeSandbox={false}
-                      showRefreshButton={true}
-                    />
-                  </SandpackLayout>
-                </SandpackProvider>
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                  {loading ? (
-                    <div className="flex flex-col items-center gap-3">
-                      <svg
-                        className="animate-spin w-8 h-8 text-primary"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                        />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                        />
-                      </svg>
-                      <span>Generating component...</span>
-                    </div>
-                  ) : (
-                    <span className="text-center px-8">
-                      Preview will appear here after generation
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
+          <div className="flex-1 bg-white overflow-hidden">
+            {preview ? (
+              <SandpackProvider
+                template="react-ts"
+                files={spFiles(preview)}
+                theme="light"
+                options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
+              >
+                <SandpackLayout style={{ height: "100%", border: "none", borderRadius: 0 }}>
+                  <SandpackPreview style={{ height: "100%" }} showOpenInCodeSandbox={false} showRefreshButton />
+                </SandpackLayout>
+              </SandpackProvider>
+            ) : (
+              <div className="flex items-center justify-center h-full text-sm text-gray-400">
+                {loading ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-5 h-5 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+                    <span>Generating...</span>
+                  </div>
+                ) : (
+                  "Preview appears after generation"
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
