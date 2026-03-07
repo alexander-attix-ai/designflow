@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DesignFlow — Figma to React",
-  description: "Paste a Figma URL, get production React components with Tailwind CSS",
+  title: "DesignFlow — AI UI Generator",
+  description: "Describe any UI in plain English or upload a screenshot. Get production React components instantly.",
 };
 
 export default function RootLayout({

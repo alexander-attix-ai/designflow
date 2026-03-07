@@ -1,158 +1,113 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { parseFigmaUrl, fetchFigmaDesign } from "@/lib/figma";
 import { SYSTEM_PROMPT } from "@/lib/prompts";
 
 export const maxDuration = 60;
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  images?: string[]; // base64 data URLs
+}
 
 export async function POST(req: Request) {
   let body: Record<string, unknown>;
   try {
     body = await req.json();
   } catch {
-    return Response.json(
-      { error: "Invalid JSON in request body" },
-      { status: 400 }
-    );
+    return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { figmaUrl, prompt, figmaToken, anthropicKey } = body as {
-    figmaUrl: string;
-    prompt?: string;
-    figmaToken?: string;
+  const { messages, anthropicKey } = body as {
+    messages: ChatMessage[];
     anthropicKey?: string;
   };
 
-  if (!figmaUrl || typeof figmaUrl !== "string") {
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    return Response.json({ error: "Messages are required" }, { status: 400 });
+  }
+
+  const lastMsg = messages[messages.length - 1];
+  if (!lastMsg || lastMsg.role !== "user") {
     return Response.json(
-      { error: "Figma URL is required" },
+      { error: "Last message must be from the user" },
       { status: 400 }
     );
   }
 
-  const figmaAccessToken = figmaToken || process.env.FIGMA_ACCESS_TOKEN;
+  if (!lastMsg.content.trim() && (!lastMsg.images || lastMsg.images.length === 0)) {
+    return Response.json(
+      { error: "Provide a description or upload an image" },
+      { status: 400 }
+    );
+  }
+
   const apiKey = anthropicKey || process.env.ANTHROPIC_API_KEY;
-
-  if (!figmaAccessToken) {
-    return Response.json(
-      {
-        error:
-          "Figma access token is required. Add it in Settings or set FIGMA_ACCESS_TOKEN.",
-      },
-      { status: 400 }
-    );
-  }
   if (!apiKey) {
     return Response.json(
-      {
-        error:
-          "Anthropic API key is required. Add it in Settings or set ANTHROPIC_API_KEY.",
-      },
+      { error: "Anthropic API key is required. Add it in Settings or set ANTHROPIC_API_KEY." },
       { status: 400 }
     );
   }
 
-  // 1. Parse Figma URL
-  let fileKey: string;
-  let nodeId: string | undefined;
-  try {
-    ({ fileKey, nodeId } = parseFigmaUrl(figmaUrl));
-  } catch (err) {
-    return Response.json(
-      {
-        error:
-          err instanceof Error
-            ? err.message
-            : "Invalid Figma URL format",
-      },
-      { status: 400 }
-    );
-  }
+  // Build Claude messages from chat history
+  const claudeMessages: Anthropic.Messages.MessageParam[] = messages.map(
+    (msg) => {
+      if (msg.role === "assistant") {
+        return { role: "assistant" as const, content: msg.content };
+      }
 
-  // 2. Fetch design data from Figma
-  let design;
-  try {
-    design = await fetchFigmaDesign(fileKey, nodeId, figmaAccessToken);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown Figma error";
-    const status = message.includes("403")
-      ? 403
-      : message.includes("404")
-        ? 404
-        : 502;
-    return Response.json(
-      { error: `Figma API: ${message}` },
-      { status }
-    );
-  }
+      // User message — may include images
+      const parts: Anthropic.Messages.ContentBlockParam[] = [];
 
-  // 3. Build the prompt for Claude
-  const userParts: string[] = [];
+      if (msg.images && msg.images.length > 0) {
+        for (const dataUrl of msg.images) {
+          const match = dataUrl.match(
+            /^data:(image\/(png|jpeg|gif|webp));base64,(.+)$/
+          );
+          if (match) {
+            parts.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: match[1] as
+                  | "image/png"
+                  | "image/jpeg"
+                  | "image/gif"
+                  | "image/webp",
+                data: match[3],
+              },
+            });
+          }
+        }
+      }
 
-  userParts.push(`## Figma Design: "${design.fileName}"`);
-  userParts.push("");
-  userParts.push("### Design Structure");
-  userParts.push("```");
-  userParts.push(design.nodeTree);
-  userParts.push("```");
+      if (msg.content.trim()) {
+        parts.push({ type: "text", text: msg.content });
+      }
 
-  if (design.colors.length > 0) {
-    userParts.push("");
-    userParts.push(`### Color Palette: ${design.colors.join(", ")}`);
-  }
-
-  if (design.fonts.length > 0) {
-    userParts.push("");
-    userParts.push(`### Fonts Used: ${design.fonts.join(", ")}`);
-  }
-
-  if (prompt) {
-    userParts.push("");
-    userParts.push(`### Additional Instructions`);
-    userParts.push(prompt);
-  }
-
-  userParts.push("");
-  userParts.push(
-    "Generate a React component that faithfully recreates this design."
+      return { role: "user" as const, content: parts };
+    }
   );
 
-  const contentParts: Anthropic.Messages.ContentBlockParam[] = [];
-
-  if (design.imageUrl) {
-    contentParts.push({
-      type: "image",
-      source: { type: "url", url: design.imageUrl },
-    });
-  }
-
-  contentParts.push({ type: "text", text: userParts.join("\n") });
-
-  // 4. Stream Claude response
+  // Stream response
   let client: Anthropic;
   try {
     client = new Anthropic({ apiKey });
-  } catch (err) {
-    return Response.json(
-      {
-        error: `Invalid Anthropic API key: ${err instanceof Error ? err.message : "unknown error"}`,
-      },
-      { status: 401 }
-    );
+  } catch {
+    return Response.json({ error: "Invalid API key" }, { status: 401 });
   }
 
   let stream;
   try {
     stream = client.messages.stream({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 8192,
+      max_tokens: 16384,
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: contentParts }],
+      messages: claudeMessages,
     });
   } catch (err) {
     return Response.json(
-      {
-        error: `Failed to start Claude stream: ${err instanceof Error ? err.message : "unknown error"}`,
-      },
+      { error: `Failed to start generation: ${err instanceof Error ? err.message : "unknown"}` },
       { status: 500 }
     );
   }
@@ -171,11 +126,8 @@ export async function POST(req: Request) {
         }
         controller.close();
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Stream interrupted";
-        controller.enqueue(
-          encoder.encode(`\n\n// Error: ${message}`)
-        );
+        const msg = err instanceof Error ? err.message : "Stream interrupted";
+        controller.enqueue(encoder.encode(`\n\n// Error: ${msg}`));
         controller.close();
       }
     },
