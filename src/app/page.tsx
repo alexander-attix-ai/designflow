@@ -120,6 +120,26 @@ export default function Home() {
     [images.length]
   );
 
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          const file = items[i].getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        addImages(files);
+      }
+    };
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [addImages]);
+
   const removeImage = (idx: number) => {
     setImages((prev) => prev.filter((_, i) => i !== idx));
   };
@@ -272,7 +292,7 @@ export default function Home() {
             <path d="M2 12l10 5 10-5" />
           </svg>
           <span className="text-[13px] font-semibold tracking-tight">DesignFlow</span>
-          <span className="text-[10px] text-gray-300 ml-1.5" data-version="v1.3.0">v1.3.0</span>
+          <span className="text-[10px] text-gray-300 ml-1.5" data-version="v1.4.0">v1.4.0</span>
         </div>
         <div className="flex items-center gap-1">
           {history.length > 0 && (
