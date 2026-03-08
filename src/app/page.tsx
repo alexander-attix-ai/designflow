@@ -553,7 +553,7 @@ export default function Home() {
               </pre>
             </div>
             {/* Preview panel */}
-            <div className="flex-1 min-w-0 overflow-hidden bg-white">
+            <div className="flex-1 min-w-0 overflow-auto bg-white">
               {preview ? (
                 <SandpackProvider
                   template="react-ts"
