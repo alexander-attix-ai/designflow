@@ -272,6 +272,7 @@ export default function Home() {
             <path d="M2 12l10 5 10-5" />
           </svg>
           <span className="text-[13px] font-semibold tracking-tight">DesignFlow</span>
+          <span className="text-[10px] text-gray-300 ml-1.5" data-version="v1.2.0">v1.2.0</span>
         </div>
         <div className="flex items-center gap-1">
           {history.length > 0 && (
@@ -544,7 +545,7 @@ export default function Home() {
           )}
         </div>
       </div>
-      <span className="fixed bottom-2 right-3 text-[10px] text-gray-300 select-none pointer-events-none" data-version="v1.1.0">v1.1.0</span>
+      {/* version in header */}
     </div>
   );
 }
