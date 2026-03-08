@@ -544,6 +544,7 @@ export default function Home() {
           )}
         </div>
       </div>
+      <span className="fixed bottom-2 right-3 text-[10px] text-gray-300 select-none pointer-events-none" data-version="v1.1.0">v1.1.0</span>
     </div>
   );
 }
