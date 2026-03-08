@@ -100,7 +100,7 @@ export async function POST(req: Request) {
   let stream;
   try {
     stream = client.messages.stream({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-opus-4-20250514",
       max_tokens: 16384,
       system: SYSTEM_PROMPT,
       messages: claudeMessages,
