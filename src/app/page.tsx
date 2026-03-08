@@ -43,7 +43,7 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 function spFiles(code: string) {
   return {
@@ -51,14 +51,14 @@ function spFiles(code: string) {
     "/Component.tsx":
       code ||
       'export default function Component() { return <div className="p-8 text-gray-400">No preview yet</div>; }',
-    "/public/index.html": `<!DOCTYPE html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="https://cdn.tailwindcss.com"></script></head><body><div id="root"></div></body></html>`,
+    "/public/index.html": `<!DOCTYPE html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="https://cdn.tailwindcss.com"></script></head><body style="margin:0"><div id="root"></div></body></html>`,
   };
 }
 
 interface ChatMsg {
   role: "user" | "assistant";
   content: string;
-  images?: string[]; // base64 data URLs
+  images?: string[];
 }
 
 export default function Home() {
@@ -66,6 +66,7 @@ export default function Home() {
   const [images, setImages] = useState<string[]>([]);
   const [apiKey, setApiKey] = useState(() => stored(SK_KEY));
   const [showSettings, setShowSettings] = useState(false);
+  const [showCode, setShowCode] = useState(false);
   const [history, setHistory] = useState<ChatMsg[]>([]);
   const [streaming, setStreaming] = useState("");
   const [loading, setLoading] = useState(false);
@@ -80,7 +81,6 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize textarea
   const resizeTextarea = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -90,7 +90,6 @@ export default function Home() {
 
   useEffect(() => resizeTextarea(), [input, resizeTextarea]);
 
-  // Scroll chat to bottom
   useEffect(() => {
     if (chatRef.current) {
       chatRef.current.scrollTop = chatRef.current.scrollHeight;
@@ -125,7 +124,6 @@ export default function Home() {
     setImages((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  // Drag and drop
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(true);
@@ -155,7 +153,11 @@ export default function Home() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    const userMsg: ChatMsg = { role: "user", content: text, images: images.length > 0 ? [...images] : undefined };
+    const userMsg: ChatMsg = {
+      role: "user",
+      content: text,
+      images: images.length > 0 ? [...images] : undefined,
+    };
     const newHistory = [...history, userMsg];
     setHistory(newHistory);
     setInput("");
@@ -244,6 +246,7 @@ export default function Home() {
     setInput("");
     setImages([]);
     setError("");
+    setShowCode(false);
   };
 
   const saveSettings = () => {
@@ -251,7 +254,6 @@ export default function Home() {
     setShowSettings(false);
   };
 
-  // Display the latest code (streaming or finalized)
   const displayCode = streaming || code;
 
   return (
@@ -293,9 +295,7 @@ export default function Home() {
       {showSettings && (
         <div className="border-b bg-gray-50/60 px-4 py-3">
           <div className="max-w-md mx-auto space-y-2">
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-widest">
-              API Key
-            </p>
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-widest">API Key</p>
             <input
               type="password"
               value={apiKey}
@@ -304,18 +304,8 @@ export default function Home() {
               className="w-full h-8 rounded-md border bg-white px-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
             />
             <div className="flex items-center gap-2">
-              <button
-                onClick={saveSettings}
-                className="h-7 px-3 text-[11px] font-medium bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
-              >
-                Save
-              </button>
-              <button
-                onClick={() => setShowSettings(false)}
-                className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
+              <button onClick={saveSettings} className="h-7 px-3 text-[11px] font-medium bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors">Save</button>
+              <button onClick={() => setShowSettings(false)} className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
             </div>
           </div>
         </div>
@@ -333,11 +323,10 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Main layout ── */}
-      <div className="flex-1 flex min-h-0">
+      {/* ── Main layout: Chat | Preview (code hidden by default) ── */}
+      <div className="flex-1 flex min-h-0" data-layout="chat-preview">
         {/* ── Left: Chat ── */}
         <div className="w-[380px] shrink-0 flex flex-col border-r">
-          {/* Chat history */}
           <div ref={chatRef} className="flex-1 overflow-y-auto">
             {history.length === 0 && !loading ? (
               <div className="flex flex-col items-center justify-center h-full px-8 text-center">
@@ -362,12 +351,7 @@ export default function Home() {
                         {msg.images && msg.images.length > 0 && (
                           <div className="flex flex-wrap gap-1.5">
                             {msg.images.map((src, j) => (
-                              <img
-                                key={j}
-                                src={src}
-                                alt=""
-                                className="w-16 h-16 object-cover rounded-md border"
-                              />
+                              <img key={j} src={src} alt="" className="w-16 h-16 object-cover rounded-md border" />
                             ))}
                           </div>
                         )}
@@ -381,10 +365,7 @@ export default function Home() {
                       <div className="text-[11px] text-gray-400 py-1">
                         Component generated
                         <button
-                          onClick={() => {
-                            setCode(msg.content);
-                            setPreview(msg.content);
-                          }}
+                          onClick={() => { setCode(msg.content); setPreview(msg.content); }}
                           className="ml-2 text-gray-500 hover:text-gray-900 underline underline-offset-2 transition-colors"
                         >
                           view
@@ -403,7 +384,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Error */}
           {error && (
             <div className="mx-3 mb-2 flex items-center justify-between rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[12px] text-red-600">
               <span className="truncate">{error}</span>
@@ -415,7 +395,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Image previews */}
           {images.length > 0 && (
             <div className="px-3 pb-1.5 flex flex-wrap gap-1.5">
               {images.map((src, i) => (
@@ -432,14 +411,9 @@ export default function Home() {
             </div>
           )}
 
-          {/* Input */}
           <div className="p-3 border-t">
             <div className="flex items-end gap-2 rounded-lg border bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-gray-900/10 transition-shadow">
-              <button
-                onClick={() => fileRef.current?.click()}
-                className="text-gray-400 hover:text-gray-600 transition-colors shrink-0 mb-0.5"
-                title="Upload images"
-              >
+              <button onClick={() => fileRef.current?.click()} className="text-gray-400 hover:text-gray-600 transition-colors shrink-0 mb-0.5" title="Upload images">
                 <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
                   <circle cx="8.5" cy="8.5" r="1.5" />
@@ -456,31 +430,18 @@ export default function Home() {
                     if (!loading) send();
                   }
                 }}
-                placeholder={
-                  history.length === 0
-                    ? "Describe a UI... or drop a screenshot"
-                    : "Refine the design..."
-                }
+                placeholder={history.length === 0 ? "Describe a UI... or drop a screenshot" : "Refine the design..."}
                 rows={1}
                 className="flex-1 text-[13px] leading-relaxed placeholder:text-gray-400 resize-none focus:outline-none min-h-[24px] max-h-[200px]"
               />
               {loading ? (
-                <button
-                  onClick={cancel}
-                  className="text-gray-400 hover:text-gray-600 transition-colors shrink-0 mb-0.5"
-                  title="Cancel"
-                >
+                <button onClick={cancel} className="text-gray-400 hover:text-gray-600 transition-colors shrink-0 mb-0.5" title="Cancel">
                   <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
                     <rect x="6" y="6" width="12" height="12" rx="1.5" />
                   </svg>
                 </button>
               ) : (
-                <button
-                  onClick={send}
-                  disabled={!input.trim() && images.length === 0}
-                  className="text-gray-400 hover:text-gray-900 transition-colors disabled:opacity-25 shrink-0 mb-0.5"
-                  title="Send"
-                >
+                <button onClick={send} disabled={!input.trim() && images.length === 0} className="text-gray-400 hover:text-gray-900 transition-colors disabled:opacity-25 shrink-0 mb-0.5" title="Send">
                   <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="22" y1="2" x2="11" y2="13" />
                     <polygon points="22 2 15 22 11 13 2 9 22 2" />
@@ -488,90 +449,70 @@ export default function Home() {
                 </button>
               )}
             </div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files) addImages(e.target.files);
-                e.target.value = "";
-              }}
-            />
+            <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="hidden" onChange={(e) => { if (e.target.files) addImages(e.target.files); e.target.value = ""; }} />
           </div>
         </div>
 
-        {/* ── Right: Code + Preview ── */}
+        {/* ── Right: Preview (full width) with optional code drawer ── */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Tabs / panel headers */}
-          <div className="h-9 flex items-center border-b shrink-0">
-            <div className="flex-1 flex items-center justify-between px-4">
-              <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-widest">
-                Code
-              </span>
-              {code && (
-                <div className="flex gap-1">
-                  <button
-                    onClick={copy}
-                    className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded transition-colors"
-                  >
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                  <button
-                    onClick={download}
-                    className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded transition-colors"
-                  >
-                    Download
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="w-px h-full bg-gray-200" />
-            <div className="flex-1 px-4">
-              <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-widest">
+          {/* Toolbar */}
+          <div className="h-9 flex items-center justify-between px-4 border-b shrink-0">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowCode(false)}
+                className={`text-[11px] font-medium px-2.5 py-1 rounded transition-colors ${
+                  !showCode
+                    ? "bg-gray-100 text-gray-900"
+                    : "text-gray-400 hover:text-gray-600"
+                }`}
+              >
                 Preview
-              </span>
+              </button>
+              <button
+                onClick={() => setShowCode(true)}
+                className={`text-[11px] font-medium px-2.5 py-1 rounded transition-colors ${
+                  showCode
+                    ? "bg-gray-100 text-gray-900"
+                    : "text-gray-400 hover:text-gray-600"
+                }`}
+              >
+                Code
+              </button>
             </div>
+            {code && (
+              <div className="flex items-center gap-1">
+                <button onClick={copy} className="text-[11px] text-gray-400 hover:text-gray-900 px-2 py-0.5 rounded transition-colors">
+                  {copied ? "Copied!" : "Copy code"}
+                </button>
+                <button onClick={download} className="text-[11px] text-gray-400 hover:text-gray-900 px-2 py-0.5 rounded transition-colors">
+                  Download
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Code + Preview */}
-          <div className="flex-1 flex min-h-0">
-            {/* Code panel */}
-            <div className="flex-1 min-w-0 border-r overflow-hidden">
-              <pre
-                ref={codeRef}
-                className="h-full overflow-auto p-4 text-[12px] leading-relaxed font-mono text-gray-600 bg-white"
-              >
-                {displayCode || (
-                  <span className="text-gray-400">
-                    {loading
-                      ? "Generating code..."
-                      : "Code will appear here"}
-                  </span>
-                )}
-              </pre>
-            </div>
-            {/* Preview panel */}
-            <div className="flex-1 min-w-0 overflow-auto bg-white">
+          {/* Panel content */}
+          <div className="flex-1 min-h-0 relative">
+            {/* Preview — always mounted, visibility toggled */}
+            <div className={`absolute inset-0 ${showCode ? "hidden" : "block"}`}>
               {preview ? (
                 <SandpackProvider
                   template="react-ts"
                   files={spFiles(preview)}
                   theme="light"
-                  options={{
-                    externalResources: ["https://cdn.tailwindcss.com"],
-                  }}
+                  options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
                 >
                   <SandpackLayout
                     style={{
                       height: "100%",
                       border: "none",
                       borderRadius: 0,
+                      display: "flex",
+                      flexDirection: "column",
                     }}
                   >
                     <SandpackPreview
-                      style={{ height: "100%" }}
+                      style={{ flex: 1, minHeight: 0 }}
                       showOpenInCodeSandbox={false}
                       showRefreshButton
                     />
@@ -589,6 +530,20 @@ export default function Home() {
                   )}
                 </div>
               )}
+            </div>
+
+            {/* Code — shown only when toggled */}
+            <div className={`absolute inset-0 bg-white ${showCode ? "block" : "hidden"}`}>
+              <pre
+                ref={codeRef}
+                className="h-full overflow-auto p-4 text-[12px] leading-relaxed font-mono text-gray-600"
+              >
+                {displayCode || (
+                  <span className="text-gray-400">
+                    {loading ? "Generating code..." : "Code will appear here"}
+                  </span>
+                )}
+              </pre>
             </div>
           </div>
         </div>
