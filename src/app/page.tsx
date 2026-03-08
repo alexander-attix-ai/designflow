@@ -491,10 +491,22 @@ export default function Home() {
             )}
           </div>
 
-          {/* Panel content */}
-          <div className="flex-1 min-h-0 relative">
-            {/* Preview — always mounted, visibility toggled */}
-            <div className={`absolute inset-0 ${showCode ? "hidden" : "block"}`}>
+          {/* Panel content — flex child, no absolute positioning */}
+          {showCode ? (
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <pre
+                ref={codeRef}
+                className="h-full overflow-auto p-4 text-[12px] leading-relaxed font-mono text-gray-600 bg-white"
+              >
+                {displayCode || (
+                  <span className="text-gray-400">
+                    {loading ? "Generating code..." : "Code will appear here"}
+                  </span>
+                )}
+              </pre>
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0 overflow-hidden" data-panel="preview">
               {preview ? (
                 <SandpackProvider
                   template="react-ts"
@@ -507,12 +519,10 @@ export default function Home() {
                       height: "100%",
                       border: "none",
                       borderRadius: 0,
-                      display: "flex",
-                      flexDirection: "column",
                     }}
                   >
                     <SandpackPreview
-                      style={{ flex: 1, minHeight: 0 }}
+                      style={{ height: "100%" }}
                       showOpenInCodeSandbox={false}
                       showRefreshButton
                     />
@@ -531,21 +541,7 @@ export default function Home() {
                 </div>
               )}
             </div>
-
-            {/* Code — shown only when toggled */}
-            <div className={`absolute inset-0 bg-white ${showCode ? "block" : "hidden"}`}>
-              <pre
-                ref={codeRef}
-                className="h-full overflow-auto p-4 text-[12px] leading-relaxed font-mono text-gray-600"
-              >
-                {displayCode || (
-                  <span className="text-gray-400">
-                    {loading ? "Generating code..." : "Code will appear here"}
-                  </span>
-                )}
-              </pre>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

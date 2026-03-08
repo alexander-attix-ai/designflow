@@ -50,3 +50,22 @@ pre {
 ::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
 }
+
+/* Sandpack overrides — force iframe to fill container and scroll */
+.sp-wrapper,
+.sp-layout,
+.sp-preview,
+.sp-preview-container {
+  height: 100% !important;
+  overflow: visible !important;
+}
+.sp-preview-container {
+  overflow: auto !important;
+}
+.sp-preview-iframe {
+  height: 100% !important;
+  min-height: 100% !important;
+}
+.sp-preview-actions {
+  z-index: 10;
+}
