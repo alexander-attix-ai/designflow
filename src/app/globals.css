@@ -54,12 +54,12 @@ pre {
 /* Sandpack overrides — force iframe to fill container and scroll */
 .sp-wrapper,
 .sp-layout,
-.sp-preview,
-.sp-preview-container {
+.sp-preview {
   height: 100% !important;
   overflow: visible !important;
 }
 .sp-preview-container {
+  height: 100% !important;
   overflow: auto !important;
 }
 .sp-preview-iframe {
