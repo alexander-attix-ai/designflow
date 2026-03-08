@@ -150,11 +150,6 @@ export default function Home() {
     if (!text && images.length === 0) return;
 
     const key = apiKey || undefined;
-    if (!key && !process.env.NEXT_PUBLIC_HAS_KEY) {
-      setError("Add your Anthropic API key in Settings.");
-      setShowSettings(true);
-      return;
-    }
 
     if (abortRef.current) abortRef.current.abort();
     const ctrl = new AbortController();
